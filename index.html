@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Secure Login System - Password Hashing</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--ink:#e2e8f0;--mute:#94a3b8;--acc:#22c55e;--bad:#ef4444;--line:#334155}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,"Segoe UI",sans-serif;padding:20px}
+main{max-width:520px;margin:0 auto}
+h1{font-size:1.5rem;margin:6px 0 2px}
+.sub{color:var(--mute);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+.tabs{display:flex;gap:8px;margin-bottom:14px}
+.tab{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+.tab.on{background:var(--acc);color:#052e16;border-color:var(--acc);font-weight:700}
+label{display:block;margin:10px 0 4px;color:var(--mute);font-size:.9rem}
+input{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:#0b1220;color:var(--ink);font-size:1rem}
+.btn{margin-top:14px;width:100%;padding:11px;border:0;border-radius:10px;background:var(--acc);color:#052e16;font-weight:700;font-size:1rem;cursor:pointer}
+.btn.sm{width:auto;padding:7px 12px;font-size:.85rem;margin-top:0;background:transparent;color:var(--bad);border:1px solid var(--bad)}
+#msg{margin-top:12px;min-height:1.2em;font-weight:600}
+.ok{color:var(--acc)}.err{color:var(--bad)}
+.db{font-family:ui-monospace,Consolas,monospace;font-size:.78rem;word-break:break-all;color:var(--mute)}
+.rec{border-top:1px solid var(--line);padding:10px 0}
+.rec b{color:var(--ink)}
+.head{display:flex;justify-content:space-between;align-items:center}
+</style>
+</head>
+<body>
+<main>
+<h1>🔐 Secure Login System</h1>
+<p class="sub">Passwords are stored as salted SHA-256 hashes, never as plain text.</p>
+
+<div class="card" id="authCard">
+  <div class="tabs">
+    <button class="tab on" id="tabReg">Register</button>
+    <button class="tab" id="tabLog">Login</button>
+  </div>
+  <label for="user">Username</label>
+  <input id="user" autocomplete="off">
+  <label for="pass">Password (min 6 characters)</label>
+  <input id="pass" type="password">
+  <button class="btn" id="go">Register</button>
+  <div id="msg"></div>
+</div>
+
+<div class="card" id="welcome" style="display:none">
+  <h2 id="hi" style="margin-top:0"></h2>
+  <p class="sub">You are logged in successfully.</p>
+  <button class="btn" id="out">Logout</button>
+</div>
+
+<div class="card">
+  <div class="head">
+    <strong>🗄️ How your password is saved</strong>
+    <button class="btn sm" id="clear">Clear all</button>
+  </div>
+  <div id="db"><p class="sub">Register a user to see it here.</p></div>
+</div>
+</main>
+
+<script>
+var KEY = "users_db";
+var mode = "register";
+
+function loadDB() {
+  try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; }
+}
+function saveDB(db) {
+  try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {}
+}
+
+// Convert bytes to hex string
+function toHex(buf) {
+  return Array.from(new Uint8Array(buf)).map(function (b) {
+    return b.toString(16).padStart(2, "0");
+  }).join("");
+}
+
+// Step 1: random salt (16 bytes)
+function makeSalt() {
+  return toHex(crypto.getRandomValues(new Uint8Array(16)));
+}
+
+// Step 2: hash = SHA-256(salt + password)
+async function hashPassword(password, salt) {
+  var data = new TextEncoder().encode(salt + password);
+  var digest = await crypto.subtle.digest("SHA-256", data);
+  return toHex(digest);
+}
+
+function say(text, good) {
+  var m = document.getElementById("msg");
+  m.textContent = text;
+  m.className = good ? "ok" : "err";
+}
+
+async function register(u, p) {
+  var db = loadDB();
+  if (db[u]) return say("Username already exists.", false);
+  var salt = makeSalt();
+  var hash = await hashPassword(p, salt);
+  db[u] = { salt: salt, hash: hash };       // password itself is NOT saved
+  saveDB(db);
+  say("Registered! Now login.", true);
+  showSaved(p, salt, hash);
+}
+
+async function login(u, p) {
+  var db = loadDB();
+  if (!db[u]) return say("User not found.", false);
+  var hash = await hashPassword(p, db[u].salt); // same salt, same algorithm
+  if (hash === db[u].hash) {
+    document.getElementById("authCard").style.display = "none";
+    document.getElementById("welcome").style.display = "block";
+    document.getElementById("hi").textContent = "Welcome, " + u + "! 🎉";
+  } else {
+    say("Wrong password.", false);
+  }
+}
+
+document.getElementById("go").onclick = function () {
+  var u = document.getElementById("user").value.trim();
+  var p = document.getElementById("pass").value;
+  if (!u || p.length < 6) return say("Enter a username and a password of 6+ characters.", false);
+  if (!window.crypto || !crypto.subtle) return say("Open this page via Live Server or HTTPS.", false);
+  (mode === "register" ? register : login)(u, p);
+};
+
+function setMode(m) {
+  mode = m;
+  document.getElementById("tabReg").classList.toggle("on", m === "register");
+  document.getElementById("tabLog").classList.toggle("on", m === "login");
+  document.getElementById("go").textContent = m === "register" ? "Register" : "Login";
+  document.getElementById("msg").textContent = "";
+}
+document.getElementById("tabReg").onclick = function () { setMode("register"); };
+document.getElementById("tabLog").onclick = function () { setMode("login"); };
+
+document.getElementById("out").onclick = function () {
+  document.getElementById("welcome").style.display = "none";
+  document.getElementById("authCard").style.display = "block";
+  document.getElementById("pass").value = "";
+  setMode("login");
+};
+document.getElementById("clear").onclick = function () {
+  saveDB({}); render();
+};
+
+function row(label, value) {
+  var d = document.createElement("div");
+  d.className = "rec db";
+  var b = document.createElement("b");
+  b.textContent = label;
+  d.appendChild(b);
+  d.appendChild(document.createElement("br"));
+  d.appendChild(document.createTextNode(value));
+  return d;
+}
+
+// Shows what the user typed vs what is actually saved
+function showSaved(typed, salt, hash) {
+  var box = document.getElementById("db");
+  box.innerHTML = "";
+  box.appendChild(row("You typed", typed));
+  box.appendChild(row("Saved in database as", hash));
+  box.appendChild(row("Salt used", salt));
+}
+
+function render() {
+  document.getElementById("db").innerHTML =
+    '<p class="sub">Register a user to see it here.</p>';
+}
+</script>
+</body>
+</html>
