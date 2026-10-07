@@ -1,0 +1,39 @@
+name: CI - Secure Login System
+
+# Trigger: runs on every push and pull request to main
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check HTML for errors
+        run: npx --yes htmlhint index.html
+
+      - name: Check JavaScript syntax
+        run: |
+          node -e "
+          const fs = require('fs');
+          const html = fs.readFileSync('index.html', 'utf8');
+          const js = html.split('<script>')[1].split('</script>')[0];
+          new Function(js);
+          console.log('JavaScript syntax OK');
+          "
+
+      - name: Check that password hashing is used
+        run: |
+          grep -q 'SHA-256' index.html
+          grep -q 'getRandomValues' index.html
+          echo "Hashing and salt code found"
